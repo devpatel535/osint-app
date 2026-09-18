@@ -1,0 +1,8 @@
+# --- Required -------------------------------------------------------------
+requests>=2.28
+
+# --- Optional, but strongly recommended -----------------------------------
+# Without these the app still runs; the matching enrichment step is simply
+# reported as unavailable instead of silently producing worse data.
+phonenumbers>=8.13      # carrier / region / line-type for phone lookups
+dnspython>=2.3          # MX + A record checks for email lookups
