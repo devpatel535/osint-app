@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 
 from .models import CONFIRMED, ERROR, LIKELY, POSSIBLE, Finding
 from .net import Fetcher, Response
-from .sites import Site
+from .sites import Site, extra_profile_fields
 
 # Typographic variants that differ between a site's recorded error string and
 # the HTML it actually serves. Without this the match rate drops sharply -
@@ -247,6 +247,13 @@ def probe_site(site: Site, username: str, fetcher: Fetcher, fetch_details: bool 
     )
     if fetch_details:
         hit.details = extract_profile_details(response.body)
+        # Tookie's field database records what else this platform publishes on
+        # a public profile. Those values need a rendered page to read, which
+        # this app deliberately does not do - but naming them tells the analyst
+        # which hits are worth opening by hand.
+        extras = extra_profile_fields(site.domain)
+        if extras:
+            hit.details["Also on this profile"] = ", ".join(extras)
     return hit
 
 

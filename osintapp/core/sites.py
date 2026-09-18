@@ -157,17 +157,62 @@ def select_sites(include_nsfw: bool = False, priority_only: bool = False, path=N
     return sites
 
 
-def load_profile_fields(path=None) -> Dict[str, dict]:
-    """Per-domain field hints from Tookie's fields.json.
+_fields_cache: Optional[Dict[str, List[str]]] = None
+_fields_lock = threading.Lock()
 
-    Upstream feeds these XPath selectors to Selenium. We do not drive a
-    browser, so they are used only as a hint of which attributes are worth
-    surfacing for a given domain.
+# Field names we already read out of the page head ourselves, so listing them
+# again as "also published here" would be noise.
+_ALREADY_EXTRACTED = {"username", "handle", "bio", "description", "avatar", "name"}
+
+
+def load_profile_fields(path=None) -> Dict[str, List[str]]:
+    """Per-domain attribute names from Tookie's fields.json.
+
+    Upstream feeds these selectors to Selenium to scrape each value. This app
+    does not drive a browser, so the selectors themselves are of no use here -
+    but the *field names* are: they record which extra attributes a given
+    platform publishes on a public profile (about.me exposes location and
+    linked socials; 7cups exposes rank and last-active). Surfacing that on a
+    hit tells the analyst which profiles are worth opening by hand.
+
+    Keys are normalised the same way site domains are, so lookups match.
     """
+    global _fields_cache
+    if path is None:
+        with _fields_lock:
+            if _fields_cache is not None:
+                return _fields_cache
+
     source = path or resource_path("profile_fields.json")
     try:
         with open(source, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
+            raw = json.load(handle)
     except (OSError, json.JSONDecodeError):
-        return {}
+        raw = {}
+
+    parsed: Dict[str, List[str]] = {}
+    if isinstance(raw, dict):
+        for domain, fields in raw.items():
+            if not isinstance(fields, dict):
+                continue
+            key = str(domain).strip().lower()
+            if key.startswith("www."):
+                key = key[4:]
+            names = sorted(str(f).strip().lower() for f in fields if str(f).strip())
+            if key and names:
+                parsed[key] = names
+
+    if path is None:
+        with _fields_lock:
+            _fields_cache = parsed
+    return parsed
+
+
+def extra_profile_fields(domain: str) -> List[str]:
+    """Human-readable extra attributes this platform publishes, if any.
+
+    Returns only the ones this app cannot already read from the page head,
+    so the hint adds information instead of repeating what is on screen.
+    """
+    fields = load_profile_fields().get((domain or "").lower(), [])
+    return [f.replace("_", " ") for f in fields if f not in _ALREADY_EXTRACTED]

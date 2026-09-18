@@ -20,8 +20,6 @@ import ssl
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
-
 from ..paths import resource_path
 
 try:  # pragma: no cover - availability differs per install
@@ -296,13 +294,3 @@ def _short_error(exc: BaseException) -> str:
     text = str(exc).strip()
     return f"{name}: {text[:100]}" if text else name
 
-
-def host_of(url: str) -> str:
-    """Bare hostname for display: https://www.x.com/ -> x.com"""
-    try:
-        netloc = urlparse(url).netloc.lower()
-    except ValueError:
-        return url
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    return netloc.split(":")[0]

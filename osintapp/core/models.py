@@ -153,15 +153,3 @@ class SearchResult:
             cancelled=bool(raw.get("cancelled", False)),
         )
 
-
-@dataclass
-class Progress:
-    """Pushed from the worker thread to the GUI while a search runs."""
-
-    done: int = 0
-    total: int = 0
-    message: str = ""
-
-    @property
-    def fraction(self) -> float:
-        return (self.done / self.total) if self.total else 0.0

@@ -11,7 +11,7 @@ Vendored files:
 | File in this repo                  | Upstream path        | Used for |
 |------------------------------------|----------------------|----------|
 | `osintapp/data/sites.json`         | `sites/sites.json`   | The 260+ site probe list: URL prefix, NSFW flag, and the "profile does not exist" error string for each site. |
-| `osintapp/data/profile_fields.json`| `sites/fields.json`  | Per-domain field selectors, used here as a hint list of which profile attributes are worth extracting. |
+| `osintapp/data/profile_fields.json`| `sites/fields.json`  | Per-domain profile field definitions. Only the **field names** are used here, to tell the analyst which extra attributes a platform publishes on a hit (`about.me` exposes location and linked socials, `7cups.com` exposes rank and last-active). The XPath/CSS selectors are not used, because this app does not drive a browser. |
 | `osintapp/data/TOOKIE-LICENSE.txt` | `LICENSE`            | Upstream licence text, shipped with the binary. |
 
 The upstream licence is reproduced in `osintapp/data/TOOKIE-LICENSE.txt` and is
@@ -29,6 +29,9 @@ The scanning logic here is a rewrite rather than a copy of upstream's
   without needing a browser or ChromeDriver.
 * Redirect-to-homepage detection was added as a second soft-404 signal.
 * Profile enrichment (`<title>`, Open Graph tags) is done by regex over the
-  already-downloaded body instead of by driving Selenium.
+  already-downloaded body instead of by driving Selenium. Where upstream's
+  `fields.json` records further attributes for a domain, those field names are
+  listed on the finding so the analyst knows which profiles reward a manual
+  look - the selectors themselves are unused, since there is no browser.
 * Email, phone, and real-name lookups, the history store, the report writer,
   and the entire GUI are original to this project.

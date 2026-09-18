@@ -151,6 +151,35 @@ class TestSoftFourOhFourDetection(unittest.TestCase):
         self.assertEqual(details["Avatar"], "https://cdn/a.jpg")
 
 
+class TestProfileFieldHints(unittest.TestCase):
+    """The vendored fields.json is used for its field NAMES, not its selectors."""
+
+    def test_known_platform_lists_extra_attributes(self):
+        extras = sites.extra_profile_fields("about.me")
+        self.assertIn("location", extras)
+        self.assertIn("linkedin", extras)
+
+    def test_www_prefixed_keys_are_normalised(self):
+        # fields.json stores "www.artstation.com"; site domains drop the www.
+        self.assertTrue(sites.extra_profile_fields("artstation.com"))
+
+    def test_fields_we_already_read_are_not_repeated(self):
+        for domain in sites.load_profile_fields():
+            with self.subTest(domain=domain):
+                self.assertNotIn("username", sites.extra_profile_fields(domain))
+                self.assertNotIn("handle", sites.extra_profile_fields(domain))
+
+    def test_unknown_platform_returns_nothing(self):
+        self.assertEqual(sites.extra_profile_fields("no-such-site.example"), [])
+        self.assertEqual(sites.extra_profile_fields(""), [])
+
+    def test_every_key_is_lowercase_and_www_free(self):
+        for domain in sites.load_profile_fields():
+            with self.subTest(domain=domain):
+                self.assertEqual(domain, domain.lower())
+                self.assertFalse(domain.startswith("www."))
+
+
 class TestHistory(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
