@@ -42,7 +42,7 @@ thousand.
 
 ## Running it
 
-### Download and run (nothing to install)
+### Option A — download and run (nothing to install, recommended)
 
 **[⬇ Download OSINT-Lookup.exe](https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup.exe)**
 
@@ -198,11 +198,12 @@ A sweep is network-bound, not CPU-bound, so the tuning is all about not waiting:
 python -m unittest discover -s tests -t .
 ```
 
-62 tests. The scanner ones run against a local mock HTTP server that reproduces
-every response pattern the classifier has to handle — real profile, soft 404,
-hard 404, homepage bounce, login wall, rate limit, dead host — so they do not
-depend on anyone else's uptime. The GUI tests need a display and skip
-automatically without one.
+69 tests, run on Windows in CI on every push as well as locally. The scanner
+ones run against a local mock HTTP server that reproduces every response
+pattern the classifier has to handle — real profile, soft 404, hard 404,
+homepage bounce, login wall, rate limit, dead host — so they do not depend on
+anyone else's uptime. The GUI tests drive the real Tk widgets; they need a
+display and skip automatically without one.
 
 ---
 
