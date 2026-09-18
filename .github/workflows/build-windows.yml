@@ -1,0 +1,94 @@
+name: Build Windows executable
+
+# Produces a ready-to-run OSINT-Lookup.exe and publishes it as the "latest"
+# release, so the download link never changes:
+#   https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup.exe
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # needed to publish the release asset
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      # Runs on the real target OS, so this also covers the Windows-only paths
+      # (%APPDATA% resolution, reserved device names, CRLF report output).
+      - name: Run tests
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: Build executable
+        run: python -m PyInstaller --noconfirm --clean packaging/osint_lookup.spec
+
+      - name: Verify the build
+        shell: pwsh
+        run: |
+          $exe = "dist/OSINT-Lookup.exe"
+          if (-not (Test-Path $exe)) { throw "build produced no executable" }
+          $size = (Get-Item $exe).Length
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          "Built $exe"
+          "Size:   {0:N1} MB" -f ($size / 1MB)
+          "SHA256: $hash"
+          if ($size -lt 5MB) { throw "executable is suspiciously small ($size bytes)" }
+          "$hash  OSINT-Lookup.exe" | Out-File -Encoding ascii dist/SHA256SUMS.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OSINT-Lookup-windows
+          path: |
+            dist/OSINT-Lookup.exe
+            dist/SHA256SUMS.txt
+          retention-days: 90
+          if-no-files-found: error
+
+      # A rolling "latest" release keeps the download URL stable across builds.
+      - name: Publish the latest release
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(python -c "import osintapp; print(osintapp.__version__)")
+          NOTES=$(cat <<EOF
+          Ready-to-run Windows build of OSINT Lookup v${VERSION}.
+
+          **Download \`OSINT-Lookup.exe\` below and double-click it.** No Python,
+          no installer, no dependencies - everything is inside the one file.
+
+          Built automatically from \`${GITHUB_SHA}\` on windows-latest.
+          Verify the download against \`SHA256SUMS.txt\` if you wish.
+
+          Windows SmartScreen may warn on first run because the binary is not
+          code-signed (signing needs a paid certificate). Choose
+          *More info -> Run anyway*.
+          EOF
+          )
+          # Recreate the rolling tag so "latest" always points at this build.
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest \
+            dist/OSINT-Lookup.exe dist/SHA256SUMS.txt \
+            --title "OSINT Lookup v${VERSION} (latest build)" \
+            --notes "${NOTES}"

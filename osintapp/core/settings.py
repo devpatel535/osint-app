@@ -8,14 +8,31 @@ values fall back to the default.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from typing import Any, Dict
 
 from ..paths import default_reports_dir, settings_path
 
+# Probing 243 sites is network-bound, not CPU-bound: the threads spend their
+# time blocked on sockets, so useful concurrency is far above the core count.
+# The ceiling is there because past it you gain nothing (the remote sites, not
+# the local machine, are the limit) while looking increasingly like a scanner.
+AUTO_THREADS = 0
+_MIN_AUTO, _MAX_AUTO = 16, 64
+
+
+def recommended_threads() -> int:
+    """Concurrency suited to this machine, used when 'threads' is AUTO."""
+    try:
+        cores = os.cpu_count() or 4
+    except Exception:  # noqa: BLE001
+        cores = 4
+    return max(_MIN_AUTO, min(_MAX_AUTO, cores * 4))
+
 DEFAULTS: Dict[str, Any] = {
     # --- scanning -------------------------------------------------------
-    "threads": 24,               # concurrent site probes
+    "threads": AUTO_THREADS,     # concurrent site probes; 0 = match this machine
     "timeout": 8.0,              # seconds per probe
     "include_nsfw": False,       # adult sites are in the Tookie list, off by default
     "name_candidates": 4,        # username spellings tried for a real-name search
@@ -33,7 +50,7 @@ DEFAULTS: Dict[str, Any] = {
 
 # Values that must be numeric and within range, or the default is used instead.
 _BOUNDS = {
-    "threads": (1, 128),
+    "threads": (0, 128),         # 0 is the AUTO sentinel
     "timeout": (2.0, 120.0),
     "name_candidates": (1, 12),
 }
@@ -114,6 +131,11 @@ class Settings:
             return dict(self._values)
 
     # -- derived ---------------------------------------------------------
+    def effective_threads(self) -> int:
+        """The concurrency to actually use, resolving AUTO for this machine."""
+        configured = int(self.get("threads") or AUTO_THREADS)
+        return recommended_threads() if configured == AUTO_THREADS else configured
+
     def reports_dir(self):
         raw = str(self.get("reports_dir") or "").strip()
         if raw:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from ..core.settings import Settings
+from ..core.settings import Settings, recommended_threads
 from . import theme
 
 
@@ -64,9 +64,9 @@ class SettingsDialog(tk.Toplevel):
 
         scanning = self._section(body, "Scanning")
         self._row(scanning, "Concurrent requests",
-                  lambda p: ttk.Spinbox(p, from_=1, to=128, width=8,
+                  lambda p: ttk.Spinbox(p, from_=0, to=128, width=8,
                                         textvariable=self.threads_var),
-                  "1-128. Higher is faster but more conspicuous.")
+                  f"0 = auto (this machine: {recommended_threads()}). Max 128.")
         self._row(scanning, "Timeout per site (s)",
                   lambda p: ttk.Spinbox(p, from_=2, to=120, increment=1, width=8,
                                         textvariable=self.timeout_var),
@@ -146,11 +146,11 @@ class SettingsDialog(tk.Toplevel):
                 parent=self,
             )
             return
-        if not 1 <= threads <= 128 or not 2 <= timeout <= 120 or not 1 <= candidates <= 12:
+        if not 0 <= threads <= 128 or not 2 <= timeout <= 120 or not 1 <= candidates <= 12:
             messagebox.showerror(
                 "Out of range",
-                "Concurrent requests must be 1-128, timeout 2-120 seconds, "
-                "handles per name 1-12.",
+                "Concurrent requests must be 0-128 (0 = auto), timeout 2-120 "
+                "seconds, handles per name 1-12.",
                 parent=self,
             )
             return

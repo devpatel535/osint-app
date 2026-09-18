@@ -31,7 +31,7 @@ class ScanContext:
     # Convenience accessors so scanners do not repeat the key strings.
     @property
     def threads(self) -> int:
-        return int(self.settings.get("threads"))
+        return self.settings.effective_threads()
 
     @property
     def include_nsfw(self) -> bool:

@@ -206,7 +206,10 @@ class SiteHit:
 def probe_site(site: Site, username: str, fetcher: Fetcher, fetch_details: bool = True) -> SiteHit:
     """Check one site for *username* and classify the answer."""
     url = site.probe_url(username)
-    response: Response = fetcher.get(url, want_body=True)
+    # Any 4xx/5xx is decided by the status alone below, so the body is not
+    # requested for those - on a typical sweep most sites answer "no account"
+    # and their error pages are the bulk of what would otherwise be downloaded.
+    response: Response = fetcher.get(url, want_body=True, error_body=False)
 
     hit = SiteHit(site=site, url=url, status=response.status)
 

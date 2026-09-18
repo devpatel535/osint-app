@@ -42,9 +42,25 @@ thousand.
 
 ## Running it
 
-### Option A — build a standalone `.exe` (recommended)
+### Download and run (nothing to install)
 
-No Python needed on the machine you finally run it on.
+**[⬇ Download OSINT-Lookup.exe](https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup.exe)**
+
+Double-click it. That is the whole process — no Python, no installer, no
+dependencies. Everything, including the site catalogue, is inside the one file.
+
+Every push to `main` rebuilds it on a Windows runner and republishes it at that
+same link, so it is always current. `SHA256SUMS.txt` on the
+[releases page](https://github.com/devpatel535/osint-app/releases/latest) lets
+you verify the download.
+
+> **First run:** Windows SmartScreen may warn, because the binary is not
+> code-signed (signing requires a paid certificate). Choose
+> **More info → Run anyway**. Some antivirus engines also look twice at any
+> unsigned OSINT tool; UPX packing is deliberately disabled in the build to
+> avoid the most common false-positive trigger.
+
+### Option B — build the `.exe` yourself
 
 ```
 git clone https://github.com/devpatel535/osint-app.git
@@ -52,14 +68,12 @@ cd osint-app
 build_windows.bat
 ```
 
-The result is **`dist\OSINT-Lookup.exe`** — one file, no console window, with
-the site catalogue baked in. Copy it anywhere and double-click.
-
-`build_windows.bat` installs the dependencies and PyInstaller for you. You need
+The result is **`dist\OSINT-Lookup.exe`**. `build_windows.bat` installs the
+dependencies and PyInstaller for you; you need
 [Python 3.9+](https://www.python.org/downloads/) installed to *build*, with
 "Add python.exe to PATH" ticked during setup.
 
-### Option B — run from source
+### Option C — run from source
 
 ```
 install_requirements.bat     (once)
@@ -144,11 +158,30 @@ found at the time rather than silently re-running the search.
 
 ---
 
+## Performance
+
+A sweep is network-bound, not CPU-bound, so the tuning is all about not waiting:
+
+- **Concurrency adapts to your machine.** The default (`0` = auto) resolves to
+  `cpu_count x 4`, clamped to 16–64. An 8-core desktop runs 32 probes at once;
+  a 16-core one runs 64. Override it in Settings if you want.
+- **Error pages are never downloaded.** Any 4xx/5xx is decided by the status
+  code alone, so the body is not streamed. Most of a sweep's responses are
+  "no account", and those pages are frequently 100 KB+. Measured over 200
+  probes against a 290 KB error page: **50 MB of transfer eliminated entirely.**
+- **Connect and read timeouts are budgeted separately.** A dead or firewalled
+  host fails its handshake in 4s instead of consuming the full read budget,
+  which is what otherwise drags out the tail of a scan.
+- **The connection pool is sized to the worker count.** urllib3's default
+  caches 10 host pools; a sweep touches 243 distinct hosts, so the default
+  thrashes. This mostly helps name and email searches, which pass over the same
+  site list several times.
+
 ## Settings
 
 **File → Settings**
 
-- **Concurrent requests** (default 24) — higher is faster but more conspicuous
+- **Concurrent requests** (default `0` = auto-match your machine) — higher is faster but more conspicuous
 - **Timeout per site** (default 8s)
 - **Handles per name search** (default 4)
 - **Include adult (NSFW) sites** — off by default; they are in the catalogue

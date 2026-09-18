@@ -77,7 +77,12 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX compression is deliberately off. It saves a few MB, but packed
+    # executables are a well-known heuristic trigger for Windows Defender and
+    # other AV engines - and an unsigned OSINT tool is already the kind of
+    # binary they look at twice. A larger, unpacked file that actually starts
+    # is worth more than a smaller one that gets quarantined.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,          # no terminal window behind the GUI

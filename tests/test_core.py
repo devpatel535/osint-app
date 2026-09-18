@@ -18,7 +18,12 @@ from osintapp.core import query, naming, sites, username_scan  # noqa: E402
 from osintapp.core.history import SearchHistory  # noqa: E402
 from osintapp.core.models import CONFIRMED, Finding, SearchResult  # noqa: E402
 from osintapp.core.report import render, save  # noqa: E402
-from osintapp.core.settings import Settings  # noqa: E402
+from osintapp.core.settings import (  # noqa: E402
+    AUTO_THREADS,
+    DEFAULTS,
+    Settings,
+    recommended_threads,
+)
 
 
 class TestQueryDetection(unittest.TestCase):
@@ -275,14 +280,30 @@ class TestSettings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             settings = Settings(Path(folder) / "s.json")
             settings.set("threads", 99999)
-            self.assertEqual(settings.get("threads"), 24)
+            self.assertEqual(settings.get("threads"), DEFAULTS["threads"])
 
     def test_corrupt_file_does_not_raise(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "s.json"
             path.write_text("{ not json at all")
             settings = Settings(path)
-            self.assertEqual(settings.get("threads"), 24)
+            self.assertEqual(settings.get("threads"), DEFAULTS["threads"])
+
+    def test_auto_threads_resolve_to_a_sane_number(self):
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Settings(Path(folder) / "s.json")
+            self.assertEqual(settings.get("threads"), AUTO_THREADS)
+            resolved = settings.effective_threads()
+            self.assertGreaterEqual(resolved, 16)
+            self.assertLessEqual(resolved, 64)
+
+    def test_explicit_thread_count_overrides_auto(self):
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Settings(Path(folder) / "s.json")
+            settings.set("threads", 40)
+            self.assertEqual(settings.effective_threads(), 40)
+            settings.set("threads", AUTO_THREADS)
+            self.assertEqual(settings.effective_threads(), recommended_threads())
 
     def test_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:
