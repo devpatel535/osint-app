@@ -204,11 +204,19 @@ class SaveOnCloseTest(unittest.TestCase):
         self.assertIn("janedoe", files[0].read_text(encoding="utf-8"))
 
     def test_unwritable_folder_reports_an_error_and_still_closes(self):
+        # A path whose PARENT is a regular file can never be created, on any
+        # OS. Naming a privileged directory instead would not work: an absolute
+        # POSIX path like /proc/... is merely relative on Windows, where it
+        # resolves to D:\proc\... and is created without complaint.
+        blocker = Path(self.tmp.name) / "not-a-directory"
+        blocker.write_text("occupies the path")
+
         window = self._open(save_default=True)
-        window.settings.update(reports_dir="/proc/definitely-not-writable")
+        window.settings.update(reports_dir=str(blocker / "reports"))
         window._on_close()
         self.root.update()
         self.assertTrue(self.box.errors, "a failed save must tell the user")
+        self.assertFalse(window.winfo_exists(), "the window must still close")
 
 
 if __name__ == "__main__":
@@ -246,8 +254,11 @@ class HistoryUiTest(unittest.TestCase):
 
         self.mw.messagebox = self._real_box  # type: ignore[assignment]
         try:
-            self.app.history.close()
-            self.app.destroy()
+            # Go out through the app's real shutdown path rather than calling
+            # destroy() directly: that is what cancels the pending after()
+            # callbacks, and exercising it here keeps the test honest about
+            # how the app actually closes.
+            self.app._on_quit()
         except tk.TclError:
             pass
         for key, value in self._old_env.items():
@@ -325,8 +336,7 @@ class HistoryUiTest(unittest.TestCase):
 
     def test_history_survives_a_restart(self):
         self._seed(7)
-        self.app.history.close()
-        self.app.destroy()
+        self.app._on_quit()          # a real quit, not a bare destroy()
 
         self.app = self.mw.MainWindow()
         self.app.settings.update(accepted_terms=True)

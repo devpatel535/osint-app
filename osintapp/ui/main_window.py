@@ -97,8 +97,11 @@ class MainWindow(tk.Tk):
         self.bind("<F5>", lambda _e: self._reload_history())
 
         self._reload_history()
-        self.after(100, self._drain_queue)
-        self.after(400, self._maybe_show_first_run_notice)
+        # Both ids are kept so they can be cancelled on quit. A pending
+        # after() callback that fires once its widgets are gone makes Tcl
+        # complain about an "invalid command name" on the way out.
+        self._queue_job: Optional[str] = self.after(100, self._drain_queue)
+        self._notice_job: Optional[str] = self.after(400, self._maybe_show_first_run_notice)
         self.search_entry.focus_set()
 
     # ------------------------------------------------------------------
@@ -342,7 +345,7 @@ class MainWindow(tk.Tk):
         except queue.Empty:
             pass
         finally:
-            self.after(100, self._drain_queue)
+            self._queue_job = self.after(100, self._drain_queue)
 
     def _reset_search_ui(self) -> None:
         self._searching = False
@@ -586,6 +589,7 @@ class MainWindow(tk.Tk):
             messagebox.showinfo("Reports folder", f"{folder}\n\n({exc})", parent=self)
 
     def _maybe_show_first_run_notice(self) -> None:
+        self._notice_job = None
         if self.settings.get("accepted_terms"):
             return
         messagebox.showinfo(f"{APP_NAME} - before you start", RESPONSIBLE_USE, parent=self)
@@ -627,6 +631,14 @@ class MainWindow(tk.Tk):
             ):
                 return
             self._cancel.set()
+
+        for job in (self._queue_job, self._notice_job):
+            if job is not None:
+                try:
+                    self.after_cancel(job)
+                except (tk.TclError, ValueError):
+                    pass
+        self._queue_job = self._notice_job = None
 
         # Honour the save-on-close checkbox of any result window still open,
         # so quitting the app does not silently drop a report the user asked for.
