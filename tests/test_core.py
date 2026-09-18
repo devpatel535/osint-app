@@ -18,7 +18,12 @@ from osintapp.core import query, naming, sites, username_scan  # noqa: E402
 from osintapp.core.history import SearchHistory  # noqa: E402
 from osintapp.core.models import CONFIRMED, Finding, SearchResult  # noqa: E402
 from osintapp.core.report import render, save  # noqa: E402
-from osintapp.core.settings import Settings  # noqa: E402
+from osintapp.core.settings import (  # noqa: E402
+    AUTO_THREADS,
+    DEFAULTS,
+    Settings,
+    recommended_threads,
+)
 
 
 class TestQueryDetection(unittest.TestCase):
@@ -151,6 +156,35 @@ class TestSoftFourOhFourDetection(unittest.TestCase):
         self.assertEqual(details["Avatar"], "https://cdn/a.jpg")
 
 
+class TestProfileFieldHints(unittest.TestCase):
+    """The vendored fields.json is used for its field NAMES, not its selectors."""
+
+    def test_known_platform_lists_extra_attributes(self):
+        extras = sites.extra_profile_fields("about.me")
+        self.assertIn("location", extras)
+        self.assertIn("linkedin", extras)
+
+    def test_www_prefixed_keys_are_normalised(self):
+        # fields.json stores "www.artstation.com"; site domains drop the www.
+        self.assertTrue(sites.extra_profile_fields("artstation.com"))
+
+    def test_fields_we_already_read_are_not_repeated(self):
+        for domain in sites.load_profile_fields():
+            with self.subTest(domain=domain):
+                self.assertNotIn("username", sites.extra_profile_fields(domain))
+                self.assertNotIn("handle", sites.extra_profile_fields(domain))
+
+    def test_unknown_platform_returns_nothing(self):
+        self.assertEqual(sites.extra_profile_fields("no-such-site.example"), [])
+        self.assertEqual(sites.extra_profile_fields(""), [])
+
+    def test_every_key_is_lowercase_and_www_free(self):
+        for domain in sites.load_profile_fields():
+            with self.subTest(domain=domain):
+                self.assertEqual(domain, domain.lower())
+                self.assertFalse(domain.startswith("www."))
+
+
 class TestHistory(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -246,14 +280,30 @@ class TestSettings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             settings = Settings(Path(folder) / "s.json")
             settings.set("threads", 99999)
-            self.assertEqual(settings.get("threads"), 24)
+            self.assertEqual(settings.get("threads"), DEFAULTS["threads"])
 
     def test_corrupt_file_does_not_raise(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "s.json"
             path.write_text("{ not json at all")
             settings = Settings(path)
-            self.assertEqual(settings.get("threads"), 24)
+            self.assertEqual(settings.get("threads"), DEFAULTS["threads"])
+
+    def test_auto_threads_resolve_to_a_sane_number(self):
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Settings(Path(folder) / "s.json")
+            self.assertEqual(settings.get("threads"), AUTO_THREADS)
+            resolved = settings.effective_threads()
+            self.assertGreaterEqual(resolved, 16)
+            self.assertLessEqual(resolved, 64)
+
+    def test_explicit_thread_count_overrides_auto(self):
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Settings(Path(folder) / "s.json")
+            settings.set("threads", 40)
+            self.assertEqual(settings.effective_threads(), 40)
+            settings.set("threads", AUTO_THREADS)
+            self.assertEqual(settings.effective_threads(), recommended_threads())
 
     def test_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:

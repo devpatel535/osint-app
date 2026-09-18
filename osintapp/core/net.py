@@ -20,8 +20,6 @@ import ssl
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
-
 from ..paths import resource_path
 
 try:  # pragma: no cover - availability differs per install
@@ -113,31 +111,85 @@ class Fetcher:
         proxy: str = "",
         verify_tls: bool = True,
         rotate_user_agent: bool = True,
+        pool_size: int = 32,
     ):
         self.timeout = float(timeout)
+        # Connect and read are budgeted separately. A host that is dead,
+        # firewalled or DNS-black-holed shows up as a failed TCP/TLS handshake,
+        # and waiting the full read budget for that is pure dead time - on a
+        # 243-site sweep the unreachable ones dominate the tail. Connect gets a
+        # short, fixed ceiling; slow-but-alive servers still get the full read.
+        self.connect_timeout = min(4.0, self.timeout)
         self.proxy = (proxy or "").strip()
         self.verify_tls = bool(verify_tls)
         self.rotate_user_agent = rotate_user_agent
         self._session = None
+
         if HAVE_REQUESTS:
             self._session = requests.Session()
             if self.proxy:
                 self._session.proxies.update({"http": self.proxy, "https": self.proxy})
 
+            # The default adapter caches 10 host pools with 10 connections each.
+            # A sweep touches ~243 *distinct* hosts from N threads at once, so
+            # with the defaults urllib3 evicts a pool on nearly every probe and
+            # re-does the TLS handshake. Sizing both to the worker count is the
+            # single biggest win available here.
+            pool = max(16, int(pool_size))
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=pool,
+                pool_maxsize=pool,
+                max_retries=0,       # a retry on a 243-site sweep just doubles the tail
+                pool_block=False,
+            )
+            self._session.mount("https://", adapter)
+            self._session.mount("http://", adapter)
+
+            # A profile URL that needs more than a handful of hops is a redirect
+            # loop or a tracking chain, not a profile. The default of 30 lets
+            # those burn the whole timeout budget.
+            self._session.max_redirects = 6
+
+            # Static headers live on the session so they are not rebuilt per
+            # request; only the User-Agent varies. Leaving Accept-Encoding to
+            # requests keeps gzip/deflate negotiation intact.
+            self._session.headers.update({
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+            })
+
     # -- headers ---------------------------------------------------------
     def _headers(self) -> Dict[str, str]:
+        """Per-request headers.
+
+        With the requests backend the static headers already sit on the
+        session, so this only carries the rotating User-Agent. The urllib
+        fallback has no session, so it gets the full set.
+        """
+        agent = random_user_agent() if self.rotate_user_agent else _DEFAULT_UA
+        if self._session is not None:
+            return {"User-Agent": agent}
         return {
-            "User-Agent": random_user_agent() if self.rotate_user_agent else _DEFAULT_UA,
+            "User-Agent": agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate",
             "Cache-Control": "no-cache",
         }
 
     # -- public ----------------------------------------------------------
-    def get(self, url: str, want_body: bool = True) -> Response:
+    def get(self, url: str, want_body: bool = True, error_body: bool = True) -> Response:
+        """Fetch *url*.
+
+        ``error_body=False`` streams nothing when the server answers 4xx/5xx.
+        A probe treats any such status as "no account" without inspecting the
+        page, so downloading the site's (often heavy) error page is wasted
+        bandwidth and time on the majority of a sweep's responses.
+        """
         if HAVE_REQUESTS:
-            return self._get_requests(url, want_body)
-        return self._get_urllib(url, want_body)
+            return self._get_requests(url, want_body, error_body)
+        return self._get_urllib(url, want_body, error_body)
 
     def get_json(self, url: str):
         """GET and parse JSON, or return None. Used for Gravatar / HIBP."""
@@ -165,12 +217,12 @@ class Fetcher:
         self.close()
 
     # -- backends --------------------------------------------------------
-    def _get_requests(self, url: str, want_body: bool) -> Response:
+    def _get_requests(self, url: str, want_body: bool, error_body: bool = True) -> Response:
         try:
             response = self._session.get(  # type: ignore[union-attr]
                 url,
                 headers=self._headers(),
-                timeout=self.timeout,
+                timeout=(self.connect_timeout, self.timeout),
                 allow_redirects=True,
                 stream=True,
                 verify=self.verify_tls,
@@ -180,7 +232,7 @@ class Fetcher:
 
         try:
             body = ""
-            if want_body:
+            if want_body and (error_body or response.status_code < 400):
                 chunks, total = [], 0
                 for chunk in response.iter_content(16_384):
                     if not chunk:
@@ -207,7 +259,7 @@ class Fetcher:
         finally:
             response.close()
 
-    def _get_urllib(self, url: str, want_body: bool) -> Response:
+    def _get_urllib(self, url: str, want_body: bool, error_body: bool = True) -> Response:
         context = None
         if not self.verify_tls:
             context = ssl.create_default_context()
@@ -238,7 +290,7 @@ class Fetcher:
             # A 404 is a perfectly good answer, not a failure - keep the status.
             raw = b""
             try:
-                raw = exc.read(MAX_BODY_BYTES) if want_body else b""
+                raw = exc.read(MAX_BODY_BYTES) if (want_body and error_body) else b""
             except Exception:  # noqa: BLE001
                 pass
             return Response(
@@ -296,13 +348,3 @@ def _short_error(exc: BaseException) -> str:
     text = str(exc).strip()
     return f"{name}: {text[:100]}" if text else name
 
-
-def host_of(url: str) -> str:
-    """Bare hostname for display: https://www.x.com/ -> x.com"""
-    try:
-        netloc = urlparse(url).netloc.lower()
-    except ValueError:
-        return url
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    return netloc.split(":")[0]

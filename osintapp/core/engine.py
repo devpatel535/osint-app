@@ -106,10 +106,15 @@ def run_search(
         result.finished_at = time.time()
         return result
 
+    # One Fetcher for the whole search, with its connection pool sized to the
+    # worker count - otherwise the threads contend for a pool smaller than
+    # themselves and keep re-doing TLS handshakes.
+    workers = settings.effective_threads()
     fetcher = Fetcher(
         timeout=float(settings.get("timeout")),
         proxy=str(settings.get("proxy") or ""),
         verify_tls=bool(settings.get("verify_tls")),
+        pool_size=workers,
     )
     ctx = ScanContext(fetcher=fetcher, settings=settings, cancel=cancel, on_progress=on_progress)
 
