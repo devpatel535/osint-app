@@ -46,6 +46,9 @@ thousand.
 
 **[⬇ Download OSINT-Lookup-windows.zip](https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup-windows.zip)**
 
+*Windows only. On Linux, macOS, or anywhere without a display, see Options C
+and D below.*
+
 Unzip it anywhere and run `OSINT-Lookup.exe` from inside the folder. No Python,
 no installer, no dependencies. Keep the folder together — the `.exe` needs the
 files next to it.
@@ -116,6 +119,44 @@ python3 run.py
 ```
 
 On Linux you also need Tk: `sudo apt install python3-tk`.
+
+### Option D — no display at all (iSH on iPhone, a server, WSL, SSH)
+
+The GUI needs a display. Where there isn't one, `osint.py` gives you the same
+engine on the command line:
+
+```
+python3 osint.py alfredredbird
+python3 osint.py "jane.doe@example.com" --save
+python3 osint.py "+44 20 7946 0958"
+python3 osint.py "Jane Doe" --type name --threads 8
+python3 osint.py --history
+python3 osint.py --clear-history
+```
+
+It writes the same `.txt` report (`--save`) and shares the same history
+database as the desktop app, so a search made here shows up in the GUI's
+history and vice versa. `--json` gives machine-readable output. `python3
+osint.py --help` lists everything.
+
+**Nothing needs installing.** `requests`, `phonenumbers` and `dnspython` make it
+better, but without them it falls back to the standard library and says so in
+the output.
+
+#### On iSH (Alpine Linux on iOS)
+
+```
+apk add git
+git clone https://github.com/devpatel535/osint-app.git
+cd osint-app
+sh setup_ish.sh
+python3 osint.py alfredredbird
+```
+
+Two things to know: iSH emulates x86, so it is **slow** — a full 243-site sweep
+takes a while, and `--threads 4` is gentler than the default. And iOS suspends
+backgrounded apps, so keep iSH in the foreground while a search runs. Email and
+phone lookups return almost immediately.
 
 ---
 
@@ -223,7 +264,7 @@ A sweep is network-bound, not CPU-bound, so the tuning is all about not waiting:
 python -m unittest discover -s tests -t .
 ```
 
-69 tests, run on Windows in CI on every push as well as locally. The scanner
+77 tests, run on Windows in CI on every push as well as locally. The scanner
 ones run against a local mock HTTP server that reproduces every response
 pattern the classifier has to handle — real profile, soft 404, hard 404,
 homepage bounce, login wall, rate limit, dead host — so they do not depend on
