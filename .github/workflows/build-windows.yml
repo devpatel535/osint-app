@@ -1,8 +1,14 @@
 name: Build Windows executable
 
-# Produces a ready-to-run OSINT-Lookup.exe and publishes it as the "latest"
-# release, so the download link never changes:
-#   https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup.exe
+# Publishes two downloads as the rolling "latest" release:
+#
+#   OSINT-Lookup-windows.zip   one-folder build  (recommended)
+#   OSINT-Lookup.exe           one-file build    (convenient, but see below)
+#
+# The one-file build is the one antivirus engines dislike. Its bootloader
+# unpacks a payload into a temp directory and runs it, which is exactly what a
+# malware dropper does, so heuristics fire on a perfectly clean binary. The
+# one-folder build does no runtime self-extraction and is flagged far less.
 on:
   push:
     branches: [main, "claude/**"]
@@ -30,40 +36,83 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install pyinstaller
+
+      - name: Install PyInstaller with a locally compiled bootloader
+        shell: bash
+        run: |
+          # The bootloader shipped in the public PyInstaller wheel is byte-identical
+          # for everyone, and because a great deal of real malware is built with
+          # stock PyInstaller, several engines simply signature that bootloader.
+          # Compiling it here produces different bytes and sidesteps that specific
+          # class of false positive. If the source build fails on the runner we
+          # fall back to the wheel rather than failing the release.
+          if python -m pip install --no-binary :all: --no-cache-dir pyinstaller; then
+            echo "bootloader compiled from source"
+          else
+            echo "::warning::source build of PyInstaller failed; falling back to the prebuilt wheel"
+            python -m pip install --force-reinstall pyinstaller
+          fi
+          python -m PyInstaller --version
 
       # Runs on the real target OS, so this also covers the Windows-only paths
       # (%APPDATA% resolution, reserved device names, CRLF report output).
       - name: Run tests
         run: python -m unittest discover -s tests -t . -v
 
-      - name: Build executable
-        run: python -m PyInstaller --noconfirm --clean packaging/osint_lookup.spec
+      - name: Build one-folder (recommended)
+        shell: pwsh
+        env:
+          OSINT_ONEDIR: "1"
+        run: python -m PyInstaller --noconfirm --clean --distpath dist-onedir --workpath build-onedir packaging/osint_lookup.spec
 
-      - name: Verify the build
+      - name: Build one-file
+        shell: pwsh
+        run: python -m PyInstaller --noconfirm --clean --distpath dist-onefile --workpath build-onefile packaging/osint_lookup.spec
+
+      # Proves the frozen build actually starts on Windows, rather than only
+      # that PyInstaller produced a file. A packaging mistake usually shows up
+      # as an immediate exit.
+      - name: Smoke-test both builds
         shell: pwsh
         run: |
-          $exe = "dist/OSINT-Lookup.exe"
-          if (-not (Test-Path $exe)) { throw "build produced no executable" }
-          $size = (Get-Item $exe).Length
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
-          "Built $exe"
-          "Size:   {0:N1} MB" -f ($size / 1MB)
-          "SHA256: $hash"
-          if ($size -lt 5MB) { throw "executable is suspiciously small ($size bytes)" }
-          "$hash  OSINT-Lookup.exe" | Out-File -Encoding ascii dist/SHA256SUMS.txt
+          foreach ($exe in @("dist-onedir/OSINT-Lookup/OSINT-Lookup.exe", "dist-onefile/OSINT-Lookup.exe")) {
+            if (-not (Test-Path $exe)) { throw "missing build output: $exe" }
+            "Launching $exe ..."
+            $p = Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 15
+            if ($p.HasExited) { throw "$exe exited immediately with code $($p.ExitCode)" }
+            Stop-Process -Id $p.Id -Force
+            "  started and stayed running - OK"
+          }
+
+      - name: Package and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path dist-onedir/OSINT-Lookup/* -DestinationPath dist/OSINT-Lookup-windows.zip -Force
+          Copy-Item dist-onefile/OSINT-Lookup.exe dist/OSINT-Lookup.exe -Force
+
+          Remove-Item dist/SHA256SUMS.txt -ErrorAction SilentlyContinue
+          foreach ($f in @("OSINT-Lookup-windows.zip", "OSINT-Lookup.exe")) {
+            $h = (Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower()
+            $size = (Get-Item "dist/$f").Length
+            "{0}  {1}" -f $h, $f | Out-File -Append -Encoding ascii dist/SHA256SUMS.txt
+            "{0}: {1:N1} MB  {2}" -f $f, ($size / 1MB), $h
+            if ($size -lt 5MB) { throw "$f is suspiciously small ($size bytes)" }
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: OSINT-Lookup-windows
           path: |
+            dist/OSINT-Lookup-windows.zip
             dist/OSINT-Lookup.exe
             dist/SHA256SUMS.txt
           retention-days: 90
           if-no-files-found: error
 
-      # A rolling "latest" release keeps the download URL stable across builds.
+      # A rolling "latest" release keeps the download URLs stable across builds.
       - name: Publish the latest release
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         shell: bash
@@ -73,22 +122,39 @@ jobs:
           set -euo pipefail
           VERSION=$(python -c "import osintapp; print(osintapp.__version__)")
           NOTES=$(cat <<EOF
-          Ready-to-run Windows build of OSINT Lookup v${VERSION}.
+          Windows build of OSINT Lookup v${VERSION}.
 
-          **Download \`OSINT-Lookup.exe\` below and double-click it.** No Python,
-          no installer, no dependencies - everything is inside the one file.
+          ## Which file?
 
-          Built automatically from \`${GITHUB_SHA}\` on windows-latest.
-          Verify the download against \`SHA256SUMS.txt\` if you wish.
+          **\`OSINT-Lookup-windows.zip\` - recommended.** Unzip it anywhere and run
+          \`OSINT-Lookup.exe\` from inside the folder. Keep the folder together; the
+          .exe needs the files beside it.
 
-          Windows SmartScreen may warn on first run because the binary is not
-          code-signed (signing needs a paid certificate). Choose
-          *More info -> Run anyway*.
+          \`OSINT-Lookup.exe\` is the same app packed into a single file. It is more
+          convenient, but antivirus engines frequently flag single-file PyInstaller
+          binaries: the bootloader unpacks a payload into a temp directory and
+          executes it, which is behaviourally identical to a malware dropper. If your
+          AV objects to it, use the .zip instead - it does no runtime self-extraction
+          and is flagged far less often.
+
+          ## Both are unsigned
+
+          Code signing needs a paid certificate, so Windows SmartScreen will warn on
+          first run: **More info -> Run anyway**.
+
+          If you would rather not trust a binary from a stranger - a reasonable
+          position for an OSINT tool - don't. Every build is produced in public CI
+          from the source in this repository; the full log for this one is at
+          \`${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\`,
+          built from commit \`${GITHUB_SHA}\`. You can also clone the repo and run
+          \`build_windows.bat\`, or skip packaging entirely and run \`run.bat\` against
+          your own Python.
+
+          Checksums for both files are in \`SHA256SUMS.txt\`.
           EOF
           )
-          # Recreate the rolling tag so "latest" always points at this build.
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest \
-            dist/OSINT-Lookup.exe dist/SHA256SUMS.txt \
+            dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe dist/SHA256SUMS.txt \
             --title "OSINT Lookup v${VERSION} (latest build)" \
             --notes "${NOTES}"

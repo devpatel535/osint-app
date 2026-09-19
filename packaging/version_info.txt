@@ -1,0 +1,32 @@
+# Windows version resource, compiled into the .exe by PyInstaller.
+#
+# An unsigned executable with no version metadata at all looks more suspicious
+# to AV heuristics and to anyone who opens its Properties dialog. Filling this
+# in is free and makes the binary identifiable.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '040904B0',
+        [StringStruct('CompanyName', 'OSINT Lookup contributors'),
+         StringStruct('FileDescription', 'OSINT Lookup - public-footprint research tool'),
+         StringStruct('FileVersion', '1.0.0.0'),
+         StringStruct('InternalName', 'OSINT-Lookup'),
+         StringStruct('LegalCopyright', 'MIT Licence. Includes the Tookie-OSINT site database (MIT).'),
+         StringStruct('OriginalFilename', 'OSINT-Lookup.exe'),
+         StringStruct('ProductName', 'OSINT Lookup'),
+         StringStruct('ProductVersion', '1.0.0.0')])
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)

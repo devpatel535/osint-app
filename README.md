@@ -44,21 +44,36 @@ thousand.
 
 ### Option A — download and run (nothing to install, recommended)
 
-**[⬇ Download OSINT-Lookup.exe](https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup.exe)**
+**[⬇ Download OSINT-Lookup-windows.zip](https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup-windows.zip)**
 
-Double-click it. That is the whole process — no Python, no installer, no
-dependencies. Everything, including the site catalogue, is inside the one file.
+Unzip it anywhere and run `OSINT-Lookup.exe` from inside the folder. No Python,
+no installer, no dependencies. Keep the folder together — the `.exe` needs the
+files next to it.
 
-Every push to `main` rebuilds it on a Windows runner and republishes it at that
-same link, so it is always current. `SHA256SUMS.txt` on the
-[releases page](https://github.com/devpatel535/osint-app/releases/latest) lets
-you verify the download.
+A single-file [`OSINT-Lookup.exe`](https://github.com/devpatel535/osint-app/releases/latest/download/OSINT-Lookup.exe)
+is published alongside it for convenience, but **prefer the .zip** — see below.
 
-> **First run:** Windows SmartScreen may warn, because the binary is not
-> code-signed (signing requires a paid certificate). Choose
-> **More info → Run anyway**. Some antivirus engines also look twice at any
-> unsigned OSINT tool; UPX packing is deliberately disabled in the build to
-> avoid the most common false-positive trigger.
+> **Antivirus may object, and it is a false positive.**
+>
+> A single-file PyInstaller binary carries a compressed payload that its
+> bootloader unpacks into a temp directory and executes at run time. Step for
+> step, that is what a malware dropper does, so heuristics fire on a perfectly
+> clean build — and because a lot of real malware is written with PyInstaller,
+> the stock bootloader's own bytes are a known signature too.
+>
+> This build fights that on three fronts: the **one-folder** packaging does no
+> runtime self-extraction at all, the bootloader is **compiled from source** in
+> CI rather than using the public wheel, and **UPX packing is disabled**. The
+> binary also carries proper version metadata instead of none.
+>
+> Neither file is code-signed, because that needs a paid certificate, so
+> SmartScreen will still warn on first run: **More info → Run anyway**.
+>
+> **If you would rather not trust a stranger's binary — a fair position for an
+> OSINT tool — don't.** Every release is built in public CI from the source in
+> this repo, and the full build log is linked from the release. Or build it
+> yourself with Option B, or skip packaging entirely with Option C. A locally
+> built binary also avoids SmartScreen, which only distrusts *downloaded* files.
 
 ### Option B — build the `.exe` yourself
 
@@ -68,10 +83,15 @@ cd osint-app
 build_windows.bat
 ```
 
-The result is **`dist\OSINT-Lookup.exe`**. `build_windows.bat` installs the
-dependencies and PyInstaller for you; you need
+This produces both packagings — `dist\OSINT-Lookup\OSINT-Lookup.exe` (the
+folder version) and `dist\OSINT-Lookup.exe` (the single file) — and compiles
+the PyInstaller bootloader from source where a C compiler is available.
+`build_windows.bat` installs the dependencies for you; you need
 [Python 3.9+](https://www.python.org/downloads/) installed to *build*, with
 "Add python.exe to PATH" ticked during setup.
+
+Because the result never crossed the internet, Windows does not mark it as
+downloaded and SmartScreen stays quiet.
 
 ### Option C — run from source
 
@@ -82,6 +102,11 @@ run.bat
 
 `run.bat` uses `pythonw.exe` when available, so no console window sits behind
 the app.
+
+This is the option with no antivirus friction whatsoever — there is no
+executable involved, just Python source you can read. It needs
+[Python 3.9+](https://www.python.org/downloads/) installed, with "Add
+python.exe to PATH" ticked.
 
 ### Linux / macOS
 
