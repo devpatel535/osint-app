@@ -48,9 +48,11 @@ jobs:
           # fall back to the wheel rather than failing the release.
           if python -m pip install --no-binary :all: --no-cache-dir pyinstaller; then
             echo "bootloader compiled from source"
+            echo "compiled-from-source" > bootloader.status
           else
             echo "::warning::source build of PyInstaller failed; falling back to the prebuilt wheel"
             python -m pip install --force-reinstall pyinstaller
+            echo "prebuilt-wheel" > bootloader.status
           fi
           python -m PyInstaller --version
 
@@ -101,6 +103,32 @@ jobs:
             if ($size -lt 5MB) { throw "$f is suspiciously small ($size bytes)" }
           }
 
+      - name: Write build provenance
+        shell: bash
+        run: |
+          {
+            echo "OSINT Lookup - build provenance"
+            echo "==============================="
+            echo
+            echo "Built            : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Repository       : ${GITHUB_REPOSITORY}"
+            echo "Commit           : ${GITHUB_SHA}"
+            echo "Workflow run     : ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "Runner           : ${RUNNER_OS} ${RUNNER_ARCH}"
+            echo "Python           : $(python --version 2>&1)"
+            echo "PyInstaller      : $(python -m PyInstaller --version 2>&1)"
+            echo "Bootloader       : $(cat bootloader.status 2>/dev/null || echo unknown)"
+            echo "UPX compression  : disabled (a known AV heuristic trigger)"
+            echo "Code signing     : none (requires a paid certificate)"
+            echo
+            echo "Everything here was produced by public CI from the commit above."
+            echo "The full log is at the workflow run URL and is readable by anyone."
+            echo "To reproduce locally: clone the repo at that commit, run build_windows.bat."
+            echo
+            echo "Checksums are in SHA256SUMS.txt."
+          } > dist/BUILDINFO.txt
+          cat dist/BUILDINFO.txt
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -109,6 +137,7 @@ jobs:
             dist/OSINT-Lookup-windows.zip
             dist/OSINT-Lookup.exe
             dist/SHA256SUMS.txt
+            dist/BUILDINFO.txt
           retention-days: 90
           if-no-files-found: error
 
@@ -155,6 +184,7 @@ jobs:
           )
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest \
-            dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe dist/SHA256SUMS.txt \
+            dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe \
+            dist/SHA256SUMS.txt dist/BUILDINFO.txt \
             --title "OSINT Lookup v${VERSION} (latest build)" \
             --notes "${NOTES}"
