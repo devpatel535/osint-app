@@ -22,17 +22,40 @@ APP_DIR_NAME = "OSINT Lookup"
 
 
 def is_frozen() -> bool:
-    """True when running from a PyInstaller bundle."""
-    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+    """True when running from a packaged build rather than from source."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return True          # PyInstaller
+    return "__compiled__" in globals()   # Nuitka
+
+
+def _resource_roots() -> list:
+    """Directories that may hold the bundled data, best candidate first.
+
+    Each packager puts it somewhere different, and rather than detecting which
+    one is in play, the first location that actually exists wins:
+
+    * PyInstaller one-file extracts everything under ``sys._MEIPASS``
+    * Nuitka standalone, and PyInstaller one-folder, place it beside the
+      executable
+    * running from source, it sits next to this module
+    """
+    roots = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(Path(meipass))
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        roots.append(Path(sys.executable).resolve().parent)
+    roots.append(Path(__file__).resolve().parent)
+    return roots
 
 
 def resource_path(*parts: str) -> Path:
     """Absolute path to a read-only file shipped in ``osintapp/data``."""
-    if is_frozen():
-        base = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-    else:
-        base = Path(__file__).resolve().parent
-    return base.joinpath("data", *parts)
+    candidates = [root.joinpath("data", *parts) for root in _resource_roots()]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]   # nothing found: report the expected location
 
 
 def data_dir() -> Path:
