@@ -146,41 +146,41 @@ that history is never trimmed.""",
 
 
 def show_history(limit: int) -> int:
-    history = SearchHistory()
-    total = history.count()
-    if not total:
-        print("No searches recorded yet.")
-        return 0
+    with SearchHistory() as history:
+        total = history.count()
+        if not total:
+            print("No searches recorded yet.")
+            return 0
 
-    print(C.bold(f"{APP_NAME} - search history") + C.grey(f"   ({total} total, never trimmed)"))
-    print()
-    for entry in history.page(0, limit):
-        kind = TYPE_LABELS.get(entry.query_type, entry.query_type)
-        found = f"{entry.hit_count} found" if entry.hit_count else "nothing found"
-        print(f"  {C.bold(entry.query)}")
-        print(C.grey(f"      {kind}  ·  {relative_age(entry.created_at)}"
-                     f"  ·  {absolute(entry.created_at)}  ·  {found}"))
-    if total > limit:
+        print(C.bold(f"{APP_NAME} - search history")
+              + C.grey(f"   ({total} total, never trimmed)"))
         print()
-        print(C.grey(f"  ... {total - limit} older searches. Use --history {total} to see them all."))
-    history.close()
-    return 0
+        for entry in history.page(0, limit):
+            kind = TYPE_LABELS.get(entry.query_type, entry.query_type)
+            found = f"{entry.hit_count} found" if entry.hit_count else "nothing found"
+            print(f"  {C.bold(entry.query)}")
+            print(C.grey(f"      {kind}  ·  {relative_age(entry.created_at)}"
+                         f"  ·  {absolute(entry.created_at)}  ·  {found}"))
+        if total > limit:
+            print()
+            print(C.grey(f"  ... {total - limit} older searches. "
+                         f"Use --history {total} to see them all."))
+        return 0
 
 
 def clear_history() -> int:
-    history = SearchHistory()
-    total = history.count()
-    if not total:
-        print("History is already empty.")
-        history.close()
-        return 0
-    answer = input(f"Delete all {total} searches from your history? [y/N] ").strip().lower()
-    if answer not in ("y", "yes"):
-        print("Cancelled.")
-        history.close()
-        return 1
-    removed = history.clear()
-    history.close()
+    with SearchHistory() as history:
+        total = history.count()
+        if not total:
+            print("History is already empty.")
+            return 0
+        answer = input(
+            f"Delete all {total} searches from your history? [y/N] "
+        ).strip().lower()
+        if answer not in ("y", "yes"):
+            print("Cancelled.")
+            return 1
+        removed = history.clear()
     print(f"Removed {removed} searches.")
     return 0
 
@@ -302,9 +302,8 @@ def main(argv=None) -> int:
 
     if not args.no_record:
         try:
-            history = SearchHistory()
-            history.add(result)
-            history.close()
+            with SearchHistory() as history:
+                history.add(result)
         except Exception as exc:  # noqa: BLE001 - a history failure must not lose the result
             print(C.yellow(f"  (could not record this search in history: {exc})"),
                   file=sys.stderr)
