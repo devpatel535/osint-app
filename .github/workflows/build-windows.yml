@@ -149,7 +149,18 @@ jobs:
           if-no-files-found: error
 
       # A rolling "latest" release keeps the download URLs stable across builds.
-      - name: Publish the latest release
+      # Each build publishes its own immutable release under a unique tag.
+      #
+      # This used to reuse a rolling "latest" tag, deleting and recreating it
+      # every build. That is incompatible with the repository's release
+      # immutability setting: once a release is published its tag is frozen,
+      # so the delete burned the name permanently and every later build failed
+      # with "tag_name was used by an immutable release". Unique tags never
+      # collide, and nothing is ever deleted or rewritten.
+      #
+      # The stable download URL still works, because /releases/latest/ resolves
+      # to whichever release is marked latest, whatever its tag is called.
+      - name: Publish the release
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
@@ -157,8 +168,9 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(python -c "import osintapp; print(osintapp.__version__)")
+          TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
           NOTES=$(cat <<EOF
-          Windows build of OSINT Lookup v${VERSION}.
+          Windows build of OSINT Lookup v${VERSION} (build ${GITHUB_RUN_NUMBER}).
 
           ## Which file?
 
@@ -186,29 +198,17 @@ jobs:
           \`build_windows.bat\`, or skip packaging entirely and run \`run.bat\` against
           your own Python.
 
-          Checksums for both files are in \`SHA256SUMS.txt\`.
+          Checksums are in \`SHA256SUMS.txt\`; build details in \`BUILDINFO.txt\`.
           EOF
           )
-          ASSETS="dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe dist/SHA256SUMS.txt dist/BUILDINFO.txt"
-          TITLE="OSINT Lookup v${VERSION} (latest build)"
+          gh release create "$TAG" \
+            dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe \
+            dist/SHA256SUMS.txt dist/BUILDINFO.txt \
+            --title "OSINT Lookup v${VERSION} (build ${GITHUB_RUN_NUMBER})" \
+            --notes "${NOTES}" \
+            --latest
+          echo "published $TAG"
 
-          # Point the rolling tag at this commit before touching the release,
-          # so the release and the tag agree.
-          git tag -f latest
-          git push -f origin refs/tags/latest
-
-          # Update in place rather than delete-then-create. The old approach
-          # had a window in which the download URL 404'd, and if the create
-          # half then failed the release stayed gone.
-          if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest --title "${TITLE}" --notes "${NOTES}"
-            gh release upload latest ${ASSETS} --clobber
-          else
-            gh release create latest ${ASSETS} --title "${TITLE}" --notes "${NOTES}"
-          fi
-
-      # A publish that half-worked is worse than one that failed loudly, so
-      # confirm the download URL people actually use really serves a file.
       - name: Verify the published download
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         shell: bash
