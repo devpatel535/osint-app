@@ -9,7 +9,18 @@ env/
 # PyInstaller
 build/
 dist/
+build-onedir/
+build-onefile/
+dist-onedir/
+dist-onefile/
 *.manifest
+
+# Nuitka
+*.build/
+*.dist/
+*.onefile-build/
+nuitka-crash-report.xml
+compilation-report.xml
 
 # App output
 reports/
