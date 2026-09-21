@@ -18,6 +18,13 @@ on:
 permissions:
   contents: write        # needed to publish the release asset
 
+# Runs on the same ref are queued rather than run side by side. Three merges
+# in quick succession previously produced three concurrent builds that raced
+# each other through the publish step and left no release at all.
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -182,9 +189,41 @@ jobs:
           Checksums for both files are in \`SHA256SUMS.txt\`.
           EOF
           )
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest \
-            dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe \
-            dist/SHA256SUMS.txt dist/BUILDINFO.txt \
-            --title "OSINT Lookup v${VERSION} (latest build)" \
-            --notes "${NOTES}"
+          ASSETS="dist/OSINT-Lookup-windows.zip dist/OSINT-Lookup.exe dist/SHA256SUMS.txt dist/BUILDINFO.txt"
+          TITLE="OSINT Lookup v${VERSION} (latest build)"
+
+          # Point the rolling tag at this commit before touching the release,
+          # so the release and the tag agree.
+          git tag -f latest
+          git push -f origin refs/tags/latest
+
+          # Update in place rather than delete-then-create. The old approach
+          # had a window in which the download URL 404'd, and if the create
+          # half then failed the release stayed gone.
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "${TITLE}" --notes "${NOTES}"
+            gh release upload latest ${ASSETS} --clobber
+          else
+            gh release create latest ${ASSETS} --title "${TITLE}" --notes "${NOTES}"
+          fi
+
+      # A publish that half-worked is worse than one that failed loudly, so
+      # confirm the download URL people actually use really serves a file.
+      - name: Verify the published download
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/latest/download/OSINT-Lookup-windows.zip"
+          for attempt in 1 2 3 4 5; do
+            CODE=$(curl -sSL -o /dev/null -w '%{http_code}' "$URL" || echo 000)
+            SIZE=$(curl -sSL -o /dev/null -w '%{size_download}' "$URL" || echo 0)
+            if [ "$CODE" = "200" ] && [ "$SIZE" -gt 5000000 ]; then
+              echo "download OK: HTTP $CODE, $SIZE bytes"
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $CODE, $SIZE bytes - retrying"
+            sleep 10
+          done
+          echo "::error::the published download is not serving a file"
+          exit 1
