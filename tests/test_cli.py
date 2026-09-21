@@ -88,6 +88,42 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("usage:", out)
 
+    def test_history_connections_are_always_closed(self):
+        """Regression: early returns used to leak an open SQLite handle.
+
+        Invisible on POSIX, which unlinks open files happily. On Windows the
+        lock stops the database being deleted at all, which is how this
+        surfaced - as a tempdir cleanup failure in CI rather than a test
+        assertion. Checking it here catches it everywhere.
+        """
+        import builtins
+
+        opened = []
+        real = cli.SearchHistory
+
+        class Tracking(real):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                opened.append(self)
+
+        real_input = builtins.input
+        cli.SearchHistory = Tracking
+        builtins.input = lambda *_a: "n"      # decline the clear-history prompt
+        try:
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                cli.main(["--history", "5"])                  # empty: early return
+                cli.main(["+44 20 7946 0958", "--quiet"])     # records one
+                cli.main(["--history", "5"])                  # non-empty path
+                cli.main(["--clear-history"])                 # declined: early return
+        finally:
+            cli.SearchHistory = real
+            builtins.input = real_input
+
+        self.assertGreaterEqual(len(opened), 4)
+        for index, history in enumerate(opened):
+            self.assertTrue(history.closed, f"history #{index} was left open")
+
     def test_follow_up_links_hidden_until_asked_for(self):
         _c, plain = self._run(["+44 20 7946 0958", "--quiet"])
         _c, everything = self._run(["+44 20 7946 0958", "--quiet", "--all"])

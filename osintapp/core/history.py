@@ -78,6 +78,7 @@ class SearchHistory:
         self.path = Path(path) if path else history_db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._closed = False
         self._connection = sqlite3.connect(str(self.path), check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._prepare()
@@ -228,3 +229,18 @@ class SearchHistory:
                 self._connection.close()
             except sqlite3.Error:
                 pass
+            self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        return getattr(self, "_closed", False)
+
+    # Usable as a context manager. Windows keeps an open SQLite file locked,
+    # so an unclosed connection is not merely untidy there - it stops the file
+    # being moved or deleted, and any early return that skipped close() would
+    # leak one.
+    def __enter__(self) -> "SearchHistory":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()

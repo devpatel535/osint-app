@@ -234,6 +234,18 @@ class TestHistory(unittest.TestCase):
         self.assertEqual(self.history.count("alpha"), 2)
         self.assertEqual(len(self.history.page(search="ALPHA")), 2)
 
+    def test_context_manager_closes(self):
+        path = Path(self.dir.name) / "ctx.db"
+        with SearchHistory(path) as history:
+            self.assertFalse(history.closed)
+        self.assertTrue(history.closed)
+
+    def test_close_is_idempotent(self):
+        history = SearchHistory(Path(self.dir.name) / "twice.db")
+        history.close()
+        history.close()
+        self.assertTrue(history.closed)
+
     def test_delete_and_clear(self):
         first = self._add("a")
         self._add("b")
